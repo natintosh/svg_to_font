@@ -24,3 +24,5 @@ const String tempNodeDir = '$tempDir/node';
 
 /// Generate the artifact temporary directory
 const String tempOutputDir = '$tempDir/out';
+
+const String tempInputDir = '$tempDir/in';

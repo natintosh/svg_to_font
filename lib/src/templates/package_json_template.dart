@@ -5,7 +5,8 @@ const String packageJsonTemplate = '''
   "version": "1.0.0",
   "license": "MIT",
   "dependencies": {
-    "fantasticon": "1.2.2"
+    "fantasticon": "1.2.2",
+    "oslllo-svg-fixer": "5.0.0"
   }
 }
 ''';

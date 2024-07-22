@@ -26,16 +26,16 @@ class SvgToFontCommandRunner extends CommandRunner<int> {
       final int exitCode =
           await runCommand(argResults) ?? ExitCode.success.code;
       return exitCode;
-    } on SvgToFontException catch (e) {
+    } on SvgToFontException catch (e, s) {
       stderr.writeln('\x1b[31m ❌ $e ❌');
       return ExitCode.usage.code;
-    } on SvgToFontUsageException catch (e) {
+    } on SvgToFontUsageException catch (e, s) {
       stderr.writeln('\x1b[31m ❌ $e ❌');
       return ExitCode.usage.code;
-    } on UsageException catch (e) {
+    } on UsageException catch (e, s) {
       stderr.writeln('\x1b[31m ❌ $e ❌');
       return ExitCode.usage.code;
-    } on Exception catch (e) {
+    } on Exception catch (e, s) {
       stderr.writeln('\x1b[31m ❌ $e ❌');
       return ExitCode.usage.code;
     }

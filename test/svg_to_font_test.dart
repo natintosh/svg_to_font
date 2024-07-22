@@ -2,7 +2,7 @@
 import 'dart:io';
 
 import 'package:io/io.dart';
-import 'package:svg_to_font/svg_to_font.dart';
+import 'package:kamona_svg_to_font/svg_to_font.dart';
 import 'package:test/test.dart';
 
 const String testDirPath = './example/camus_test';

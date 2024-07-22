@@ -112,20 +112,69 @@ class SvgToFontCommand extends Command<int> {
     final Directory outputDir =
         Directory(path.join(rootDirector.path, tempOutputDir));
 
+    final Directory inputDir =
+        Directory(path.join(rootDirector.path, tempInputDir));
+
     if (outputDir.existsSync()) {
       await outputDir.delete(recursive: true);
     }
+    if (inputDir.existsSync()) {
+      await inputDir.delete(recursive: true);
+    }
     await outputDir.create(recursive: true);
+    await inputDir.create(recursive: true);
+
+    final Directory svgDir = Directory(path.join(path.current, argResults![svgInputDir]));
+
+    await for (final FileSystemEntity entity in svgDir.list(recursive: true)) {
+      if (entity is File && entity.path.endsWith('.svg')) {
+        final File newFile = File(path.join(inputDir.path, path.basename(entity.path)));
+
+        await entity.copy(newFile.path);
+      }
+    }
+
 
     try {
-      final Process result = await Process.start(
+      Process result = await Process.start(
+        path.join(
+          rootDirector.path,
+          tempNodeDir,
+          'node_modules/.bin/oslllo-svg-fixer',
+        ),
+        <String>[
+          '--source',
+          inputDir.path,
+          '--destination',
+          inputDir.path,
+        ],
+      );
+
+      await stdout.addStream(result.stdout);
+
+      int code = await result.exitCode;
+
+      if (code != 0) {
+        await stdout.addStream(
+          result.stdout.map((List<int> bytes) {
+            final String message = utf8.decode(bytes);
+            return utf8.encode(message);
+          }),
+        );
+
+        throw const SvgToFontException(
+          'SVG Cleanup Failed!',
+        );
+      }
+
+      result = await Process.start(
         path.join(
           rootDirector.path,
           tempNodeDir,
           'node_modules/.bin/fantasticon',
         ),
         <String>[
-          path.join(path.current, argResults![svgInputDir]),
+          inputDir.path,
           '--name',
           argResults![iconsClassName] ?? defaultIconsClassName,
           '--output',
@@ -138,7 +187,7 @@ class SvgToFontCommand extends Command<int> {
         runInShell: true,
       );
 
-      final int code = await result.exitCode;
+      code = await result.exitCode;
       if (code != 0) {
         await stdout.addStream(
           result.stdout.map((List<int> bytes) {
@@ -176,6 +225,7 @@ class SvgToFontCommand extends Command<int> {
     final Class bbIcons = Class(
       (ClassBuilder builder) {
         final ClassBuilder classBuilder = builder;
+        classBuilder.annotations.add(refer('staticIconProvider'));
         classBuilder.name = className;
         classBuilder.methods.add(
           Method(
@@ -195,7 +245,7 @@ class SvgToFontCommand extends Command<int> {
                     '/// File path: ${itemSvgPath.replaceAll(r'\', r'/')}',
                   );
                 }
-                fieldBuild.name = key;
+                fieldBuild.name = key.snakeCase;
                 fieldBuild.type = refer('IconData');
                 fieldBuild.modifier = FieldModifier.final$;
                 fieldBuild.assignment =
@@ -210,7 +260,7 @@ class SvgToFontCommand extends Command<int> {
     );
 
     const String ignore = '''
-// ignore_for_file: sort_constructors_first, public_member_api_docs
+// ignore_for_file: sort_constructors_first, public_member_api_docs, constant_identifier_names
 ''';
 
     final DartEmitter emitter = DartEmitter();
@@ -222,7 +272,7 @@ class SvgToFontCommand extends Command<int> {
 ''';
 
     final String import = """
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 
 const String fontFamily = '$className';
 
