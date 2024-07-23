@@ -34,6 +34,10 @@ class SvgToFontCommand extends Command<int> {
       defaultsTo: defaultIconsClassName,
       help: 'Flutter icons class Name',
     );
+    argParser.addOption(
+      iconsPackageName,
+      help: 'Flutter icons class package name',
+    );
     argParser.addFlag(
       deleteInput,
       defaultsTo: false,
@@ -124,16 +128,17 @@ class SvgToFontCommand extends Command<int> {
     await outputDir.create(recursive: true);
     await inputDir.create(recursive: true);
 
-    final Directory svgDir = Directory(path.join(path.current, argResults![svgInputDir]));
+    final Directory svgDir =
+        Directory(path.join(path.current, argResults![svgInputDir]));
 
     await for (final FileSystemEntity entity in svgDir.list(recursive: true)) {
       if (entity is File && entity.path.endsWith('.svg')) {
-        final File newFile = File(path.join(inputDir.path, path.basename(entity.path)));
+        final File newFile =
+            File(path.join(inputDir.path, path.basename(entity.path)));
 
         await entity.copy(newFile.path);
       }
     }
-
 
     try {
       Process result = await Process.start(
@@ -210,6 +215,7 @@ class SvgToFontCommand extends Command<int> {
   Future<void> _generateFlutterFile() async {
     final String className =
         argResults![iconsClassName] ?? defaultIconsClassName;
+    final String? packageName = argResults![iconsPackageName];
     final File iconfontsFile = File.fromUri(
       rootDirector.uri.resolve(
         path.join(
@@ -233,6 +239,30 @@ class SvgToFontCommand extends Command<int> {
                 constructorBuilder..name = '$className._',
           ),
         );
+        classBuilder.fields.addAll(
+          <Field>[
+            Field(
+              (FieldBuilder fieldBuilder) {
+                fieldBuilder.static = true;
+                fieldBuilder.modifier = FieldModifier.constant;
+                fieldBuilder.name = 'fontFamily';
+                fieldBuilder.type = refer('String');
+                fieldBuilder.assignment = literalString(className).code;
+              },
+            ),
+            Field(
+              (FieldBuilder fieldBuilder) {
+                fieldBuilder.static = true;
+                fieldBuilder.modifier = FieldModifier.constant;
+                fieldBuilder.name = 'fontPackage';
+                fieldBuilder.type = refer('String?');
+                fieldBuilder.assignment = packageName != null
+                    ? literalString(packageName).code
+                    : literalNull.code;
+              },
+            ),
+          ],
+        );
         for (final String key in icons.keys) {
           final String codePoint = '0x${icons[key].toRadixString(16)}';
           classBuilder.fields.add(
@@ -249,13 +279,29 @@ class SvgToFontCommand extends Command<int> {
                 fieldBuild.type = refer('IconData');
                 fieldBuild.modifier = FieldModifier.final$;
                 fieldBuild.assignment =
-                    Code('IconData($codePoint, fontFamily: fontFamily)');
+                    Code('IconData($codePoint, fontFamily: fontFamily, fontPackage: fontPackage)');
                 fieldBuild.static = true;
                 fieldBuild.modifier = FieldModifier.constant;
               },
             ),
           );
         }
+        classBuilder.fields.add(
+          Field(
+            (FieldBuilder fieldBuilder) {
+              final String mapValue = icons.keys.fold('', (String a, String b) {
+                final String name = b.snakeCase;
+                return '$a\n  \'$name\': $name,';
+              });
+              // map of all icons
+              fieldBuilder.static = true;
+              fieldBuilder.modifier = FieldModifier.constant;
+              fieldBuilder.name = 'all';
+              fieldBuilder.type = refer('Map<String, IconData>');
+              fieldBuilder.assignment = Code('Map<String, IconData>{$mapValue}');
+            },
+          ),
+        );
       },
     );
 
@@ -271,10 +317,8 @@ class SvgToFontCommand extends Command<int> {
 
 ''';
 
-    final String import = """
+    const String import = """
 import 'package:flutter/widgets.dart';
-
-const String fontFamily = '$className';
 
     """;
     final String emitterResult =

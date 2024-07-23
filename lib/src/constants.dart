@@ -7,6 +7,9 @@ const String fontOutputDir = 'font-output';
 /// Flutter icons class Name
 const String iconsClassName = 'name';
 
+/// Flutter icons class package name
+const String iconsPackageName = 'package';
+
 /// Flutter icons class default Name
 const String defaultIconsClassName = 'CamusIcons';
 
