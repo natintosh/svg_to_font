@@ -255,7 +255,7 @@ class SvgToFontCommand extends Command<int> {
                 fieldBuilder.static = true;
                 fieldBuilder.modifier = FieldModifier.constant;
                 fieldBuilder.name = 'fontPackage';
-                fieldBuilder.type = refer('String?');
+                fieldBuilder.type = packageName != null ? refer('String') : refer('String?');
                 fieldBuilder.assignment = packageName != null
                     ? literalString(packageName).code
                     : literalNull.code;
