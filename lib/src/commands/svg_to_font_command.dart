@@ -298,7 +298,7 @@ class SvgToFontCommand extends Command<int> {
               fieldBuilder.modifier = FieldModifier.constant;
               fieldBuilder.name = 'all';
               fieldBuilder.type = refer('Map<String, IconData>');
-              fieldBuilder.assignment = Code('Map<String, IconData>{$mapValue}');
+              fieldBuilder.assignment = Code('<String, IconData>{$mapValue}');
             },
           ),
         );
