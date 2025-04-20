@@ -11,6 +11,7 @@ import 'package:recase/recase.dart';
 
 import '../constants.dart';
 import '../exception.dart';
+import '../templates/fantasticon_config_template.dart';
 import '../templates/package_json_template.dart';
 
 /// Generate icon font (.ttf) and Flutter icon class
@@ -89,9 +90,11 @@ class SvgToFontCommand extends Command<int> {
   Directory get rootDirector =>
       Directory.fromUri(Platform.script.resolve('..'));
 
+  /// Combines the root directory path with the temporary Node.js directory name.
+  String get nodeDirPath => path.join(rootDirector.path, tempNodeDir);
+
   /// generate node package.json && execute npm install
   Future<void> _generatePackageJson() async {
-    final String nodeDirPath = path.join(rootDirector.path, tempNodeDir);
     final Directory dir = Directory(nodeDirPath);
     if (!dir.existsSync()) {
       await dir.create(recursive: true);
@@ -171,6 +174,11 @@ class SvgToFontCommand extends Command<int> {
           'SVG Cleanup Failed!',
         );
       }
+      
+      final File fantasticonConfigFile = File(path.join(nodeDirPath, 'fantasticonrc.json'));
+      if (!fantasticonConfigFile.existsSync()) {
+        await fantasticonConfigFile.writeAsString(fantasticonConfigTemplate);
+      }
 
       result = await Process.start(
         path.join(
@@ -188,6 +196,8 @@ class SvgToFontCommand extends Command<int> {
           'json',
           '--font-types',
           'ttf',
+          '--config',
+          fantasticonConfigFile.path,
         ],
         runInShell: true,
       );
