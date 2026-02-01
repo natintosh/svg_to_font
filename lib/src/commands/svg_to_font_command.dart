@@ -242,6 +242,7 @@ class SvgToFontCommand extends Command<int> {
       (ClassBuilder builder) {
         final ClassBuilder classBuilder = builder;
         classBuilder.annotations.add(refer('staticIconProvider'));
+        classBuilder.abstract = true;
         classBuilder.name = className;
         classBuilder.methods.add(
           Method(
@@ -332,8 +333,8 @@ import 'package:flutter/widgets.dart';
 
     """;
     final String emitterResult =
-        DartFormatter().format('${bbIcons.accept(emitter)}');
-    final DartFormatter formatter = DartFormatter();
+        DartFormatter(languageVersion: DartFormatter.latestLanguageVersion).format('${bbIcons.accept(emitter)}');
+    final DartFormatter formatter = DartFormatter(languageVersion: DartFormatter.latestLanguageVersion);
     final String result =
         formatter.format(ignore + header + import + emitterResult);
 
