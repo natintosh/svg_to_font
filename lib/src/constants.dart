@@ -19,6 +19,15 @@ const String iconsOutputDir = 'class-output';
 /// Is delete your input svg, if false, can preview svg
 const String deleteInput = 'delete-input';
 
+/// Is use color font
+const String useColor = 'color';
+
+/// Is verbose
+const String verbose = 'verbose';
+
+/// Is keep temp
+const String keepTemp = 'keep-temp';
+
 /// temp output dir
 const String tempDir = 'temp';
 
