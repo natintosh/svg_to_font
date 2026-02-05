@@ -9,7 +9,24 @@ import 'package:path/path.dart' as path;
 import 'package:recase/recase.dart';
 
 import '../constants.dart';
+import '../templates/fantasticon_config_template.dart';
 
+/// =============================================================================
+/// SvgToFont: Font Generator
+/// =============================================================================
+///
+/// ARCHITECTURE:
+/// 1. **Command Layer**: Handles CLI arguments.
+/// 2. **Processing Layer**: Normalizes input files.
+/// 3. **Generation Layer (Strategy Pattern)**:
+///    - `FantasticonGenerator`: Node.js for mono icons.
+///    - `NanoEmojiGenerator`: Python for color icons (COLRv0).
+/// 4. **Output Layer**: Generates Dart code.
+///
+/// COMPATIBILITY NOTES:
+/// - **Color Fonts**: Uses `COLRv0` (glyf_colr_0).
+///   - iOS 12+ (CoreText) & Android 8.1+ support.
+///   - **Constraint**: Requires Vector SVGs. Bitmaps (PNGs) are NOT supported in COLRv0.
 
 // =============================================================================
 // 1. Core Command (The Entry Point)
@@ -18,22 +35,36 @@ import '../constants.dart';
 class SvgToFontCommand extends Command<int> {
   SvgToFontCommand() {
     argParser
-      ..addOption(svgInputDir, abbr: 'i', help: 'Input path of SVG files', mandatory: true)
-      ..addOption(fontOutputDir, abbr: 'o', help: 'Output path for .ttf fonts', mandatory: true)
-      ..addOption(iconsOutputDir, abbr: 'c', help: 'Output path for Dart class', mandatory: true)
-      ..addOption(iconsClassName, abbr: 'n', defaultsTo: defaultIconsClassName, help: 'Class name for icons')
-      ..addOption(iconsPackageName, abbr: 'p', help: 'Package name (if generating for a package)')
-      ..addFlag(deleteInput, defaultsTo: false, help: 'Delete input SVGs after generation')
-      ..addFlag(useColor, defaultsTo: false, help: 'Enable colored icon generation (Requires Python/Nanoemoji)')
-      ..addFlag(verbose, abbr: 'v', defaultsTo: false, help: 'Show detailed logs')
-      ..addFlag(keepTemp, defaultsTo: false, help: 'Keep temporary files for debugging');
+      ..addOption(svgInputDir,
+          abbr: 'i', help: 'Input path of SVG files', mandatory: true)
+      ..addOption(fontOutputDir,
+          abbr: 'o', help: 'Output path for .ttf fonts', mandatory: true)
+      ..addOption(iconsOutputDir,
+          abbr: 'c', help: 'Output path for Dart class', mandatory: true)
+      ..addOption(iconsClassName,
+          abbr: 'n',
+          defaultsTo: defaultIconsClassName,
+          help: 'Class name for icons (e.g., MyIcons)')
+      ..addOption(iconsPackageName,
+          abbr: 'p',
+          help: 'Package name (if generating for a package/library)')
+      ..addFlag(deleteInput,
+          defaultsTo: false, help: 'Delete input SVGs after generation')
+      ..addFlag(useColor,
+          defaultsTo: false,
+          help: 'Enable colored icon generation (Requires Python/Nanoemoji)')
+      ..addFlag(verbose,
+          abbr: 'v', defaultsTo: false, help: 'Show detailed logs')
+      ..addFlag(keepTemp,
+          defaultsTo: false, help: 'Keep temporary files for debugging');
   }
 
   @override
   String get name => 'generate';
 
   @override
-  String get description => 'Generates font files and Flutter Icon classes from SVGs.';
+  String get description =>
+      'Generates font files and Flutter Icon classes from SVGs.';
 
   @override
   Future<int> run() async {
@@ -47,8 +78,9 @@ class SvgToFontCommand extends Command<int> {
     try {
       logger.info('🚀 Starting SvgToFont generation...');
 
-      // 1. Setup Workspace (Use System Temp, never package root)
-      workspaceDir = Directory.systemTemp.createTempSync('svg_to_font_build_');
+      // 1. Setup Workspace (Use System Temp to avoid permission issues)
+      workspaceDir =
+          Directory.systemTemp.createTempSync('svg_to_font_build_');
       logger.debug('Workspace created at: ${workspaceDir.path}');
 
       // 2. Parse Inputs
@@ -68,7 +100,8 @@ class SvgToFontCommand extends Command<int> {
       final processingResult = await processor.prepareSvgs(inputDir);
 
       if (processingResult.files.isEmpty) {
-        throw ToolException('No SVG files found in ${inputDir.path}');
+        throw ToolException(
+            'No supported files (SVG) found in ${inputDir.path}. Note: PNGs are not supported.');
       }
 
       // 4. Select Strategy & Generate Font
@@ -76,7 +109,8 @@ class SvgToFontCommand extends Command<int> {
           ? NanoEmojiGenerator(shell, logger, workspaceDir)
           : FantasticonGenerator(shell, logger, workspaceDir);
 
-      logger.info('🛠  Checking prerequisites for ${isColor ? "Color" : "Mono"} mode...');
+      logger.info(
+          '🛠  Checking prerequisites for ${isColor ? "Color" : "Mono"} mode...');
       await generator.checkPrerequisites();
 
       logger.info('⚙️  Generating font...');
@@ -84,6 +118,13 @@ class SvgToFontCommand extends Command<int> {
         processingResult.files,
         className,
       );
+
+      // Print Mapping Table for Debugging
+      logger.info('\n📊 Icon Mapping Table (Verify these match Dart code):');
+      generationResult.glyphMap.forEach((name, code) {
+        logger.info('  $name -> 0x${code.toRadixString(16).toUpperCase()}');
+      });
+      logger.info('');
 
       // 5. Generate Flutter Code
       logger.info('📝 Generating Dart code...');
@@ -95,7 +136,7 @@ class SvgToFontCommand extends Command<int> {
         originalFileMap: processingResult.originalPathMap,
       );
 
-      // 6. Delivery (Move artifacts from Temp to User Output)
+      // 6. Delivery
       await _deliverArtifacts(
         fontFile: generationResult.fontFile,
         dartContent: dartCode,
@@ -105,15 +146,32 @@ class SvgToFontCommand extends Command<int> {
         logger: logger,
       );
 
-      // 7. Cleanup Input (Optional)
+      // 7. Cleanup
       if (argResults![deleteInput]) {
         logger.info('🗑  Deleting source SVGs...');
         await inputDir.delete(recursive: true);
       }
 
-      logger.success('✅ Generation complete!');
-      return 0;
+      final fontFileName = '${ReCase(className).snakeCase}.ttf';
 
+      logger.success('✅ Generation complete!');
+
+      // Critical Instruction for Flutter Developers
+      logger.info(
+          '⚠️  CRITICAL: You MUST run the following commands to clear the font cache:');
+      logger.info('   flutter clean');
+      logger.info('   flutter pub get');
+      logger.info(
+          '   (Then uninstall the app from the simulator/device before running again)');
+
+      logger.info('\n📝 pubspec.yaml entry:');
+      logger.info('''
+  fonts:
+    - family: $className
+      fonts:
+        - asset: ${path.join(argResults![fontOutputDir], fontFileName)}
+''');
+      return 0;
     } on ToolException catch (e) {
       logger.error(e.message);
       return 1;
@@ -122,7 +180,6 @@ class SvgToFontCommand extends Command<int> {
       if (isVerbose) logger.error(stack.toString());
       return 1;
     } finally {
-      // Always clean up temp workspace unless keep-temp is true
       if (workspaceDir != null && workspaceDir.existsSync()) {
         if (shouldKeepTemp) {
           logger.info('ℹ️  Keeping temp workspace at: ${workspaceDir.path}');
@@ -146,16 +203,25 @@ class SvgToFontCommand extends Command<int> {
     required String className,
     required Logger logger,
   }) async {
-    if (!fontOutputDir.existsSync()) await fontOutputDir.create(recursive: true);
-    if (!iconsOutputDir.existsSync()) await iconsOutputDir.create(recursive: true);
+    if (!fontOutputDir.existsSync())
+      await fontOutputDir.create(recursive: true);
+    if (!iconsOutputDir.existsSync())
+      await iconsOutputDir.create(recursive: true);
 
-    // Copy Font
-    final targetFontPath = path.join(fontOutputDir.path, '$className.ttf');
+    final fontFileName = '${ReCase(className).snakeCase}.ttf';
+    final targetFontPath = path.join(fontOutputDir.path, fontFileName);
+
+    // Sanity check
+    if (await fontFile.length() < 100) {
+      throw ToolException(
+          'Generated font file is suspiciously small or empty. Generation likely failed.');
+    }
+
     await fontFile.copy(targetFontPath);
     logger.info('Checking out font: $targetFontPath');
 
-    // Write Dart Class
-    final targetDartPath = path.join(iconsOutputDir.path, '${ReCase(className).snakeCase}.dart');
+    final targetDartPath =
+    path.join(iconsOutputDir.path, '${ReCase(className).snakeCase}.dart');
     await File(targetDartPath).writeAsString(dartContent);
     logger.info('Checking out code: $targetDartPath');
   }
@@ -180,10 +246,12 @@ abstract class FontGenerator {
   FontGenerator(this.shell, this.logger, this.workspace);
 
   Future<void> checkPrerequisites();
-  Future<FontGenerationResult> generate(List<File> svgs, String className);
+  Future<FontGenerationResult> generate(List<File> files, String className);
 }
 
-/// Generates Monotone fonts using Node.js + Fantasticon
+/// ----------------------------------------------------------------------------
+/// Strategy A: Monotone Fonts (Node.js + Fantasticon)
+/// ----------------------------------------------------------------------------
 class FantasticonGenerator extends FontGenerator {
   FantasticonGenerator(super.shell, super.logger, super.workspace);
 
@@ -198,61 +266,79 @@ class FantasticonGenerator extends FontGenerator {
   }
 
   @override
-  Future<FontGenerationResult> generate(List<File> svgs, String className) async {
-    // 1. Initialize simple package.json in temp workspace
+  Future<FontGenerationResult> generate(
+      List<File> files, String className) async {
+    if (files.isEmpty) {
+      throw ToolException('No files provided for mono generation.');
+    }
+
     final packageJson = File(path.join(workspace.path, 'package.json'));
-    await packageJson.writeAsString('{"name": "temp_font_gen", "private": true}');
+    await packageJson
+        .writeAsString('{"name": "temp_font_gen", "private": true}');
 
-    // 2. Install fantasticon locally in workspace (avoids global pollution)
     logger.info('Installing fantasticon in temporary workspace...');
-    await shell.execute('npm', ['install', 'fantasticon'], workingDirectory: workspace.path);
+    await shell.execute('npm', ['install', 'fantasticon'],
+        workingDirectory: workspace.path);
 
-    // 3. Run Fantasticon
     final inputDir = Directory(path.join(workspace.path, 'icons'));
     if (!inputDir.existsSync()) inputDir.createSync();
 
-    // Copy SVGs to input dir (Fantasticon needs a dir)
-    for (var f in svgs) {
+    for (var f in files) {
       await f.copy(path.join(inputDir.path, path.basename(f.path)));
     }
 
     final outputDir = Directory(path.join(workspace.path, 'out'));
     if (!outputDir.existsSync()) outputDir.createSync();
 
+    final fontName = ReCase(className).snakeCase;
+
     final configFile = File(path.join(workspace.path, 'fantasticonrc.json'));
-    // CRITICAL FIX: Use 'outputDir' instead of 'output' in config JSON.
+    if (!configFile.existsSync()) {
+      try {
+        await configFile.writeAsString(fantasticonConfigTemplate);
+      } catch (_) {
+        await configFile.writeAsString('{}');
+      }
+    }
+
     await configFile.writeAsString(jsonEncode({
-      'name': className,
-      'outputDir': outputDir.path, // <--- Fixed key
+      'name': fontName,
+      'outputDir': outputDir.path,
       'inputDir': inputDir.path,
       'fontTypes': ['ttf'],
       'assetTypes': ['json'],
-      'formatOptions': {'json': {'indent': 2}}
+      'formatOptions': {
+        'json': {'indent': 2}
+      }
     }));
 
-    // CRITICAL FIX: Removed inputDir.path positional arg, relying on config file 'inputDir'
     await shell.execute(
       path.join(workspace.path, 'node_modules', '.bin', 'fantasticon'),
       ['-c', configFile.path],
       workingDirectory: workspace.path,
     );
 
-    // 4. Parse Result
-    final ttf = File(path.join(outputDir.path, '$className.ttf'));
-    final mapFile = File(path.join(outputDir.path, '$className.json'));
+    final ttf = File(path.join(outputDir.path, '$fontName.ttf'));
+    final mapFile = File(path.join(outputDir.path, '$fontName.json'));
 
     if (!ttf.existsSync() || !mapFile.existsSync()) {
       throw ToolException('Fantasticon failed to produce output files.');
     }
 
-    final Map<String, dynamic> rawMap = jsonDecode(await mapFile.readAsString());
-    final Map<String, int> glyphMap = rawMap.map((key, value) => MapEntry(key, value as int));
+    final Map<String, dynamic> rawMap =
+    jsonDecode(await mapFile.readAsString());
+    final Map<String, int> glyphMap =
+    rawMap.map((key, value) => MapEntry(key, value as int));
 
     return FontGenerationResult(ttf, glyphMap);
   }
 }
 
-/// Generates Color fonts using Python + NanoEmoji
+/// ----------------------------------------------------------------------------
+/// Strategy B: Color Fonts (Python + NanoEmoji)
+/// ----------------------------------------------------------------------------
+/// Uses `nanoemoji` to create COLRv0 fonts.
+/// COLRv0 is chosen for native stability on iOS 12+ and Android 8+.
 class NanoEmojiGenerator extends FontGenerator {
   NanoEmojiGenerator(super.shell, super.logger, super.workspace);
 
@@ -266,8 +352,8 @@ class NanoEmojiGenerator extends FontGenerator {
   }
 
   @override
-  Future<FontGenerationResult> generate(List<File> svgs, String className) async {
-    // 1. Setup Virtual Env in workspace
+  Future<FontGenerationResult> generate(
+      List<File> files, String className) async {
     final venvPath = path.join(workspace.path, 'venv');
     logger.info('Creating Python virtual environment...');
     await shell.execute('python3', ['-m', 'venv', venvPath]);
@@ -275,13 +361,12 @@ class NanoEmojiGenerator extends FontGenerator {
     final pipPath = path.join(venvPath, 'bin', 'pip');
     final nanoPath = path.join(venvPath, 'bin', 'nanoemoji');
 
-    // 2. Install nanoemoji
     logger.info('Installing nanoemoji (this may take a moment)...');
-    await shell.execute(pipPath, ['install', 'nanoemoji', 'ninja'], workingDirectory: workspace.path);
+    await shell.execute(pipPath, ['install', 'nanoemoji', 'ninja'],
+        workingDirectory: workspace.path);
 
-    // 3. Prepare Files with PUA Codepoints
-    // Nanoemoji infers codepoints from filenames if formatted like uE001.svg
-    // We construct a deterministic map here.
+    // Prepare Files with PUA Codepoints
+    // We strictly rename files to `uE000.svg` to prevent system emoji conflicts.
     final preparedDir = Directory(path.join(workspace.path, 'prepared_icons'));
     preparedDir.createSync();
 
@@ -289,16 +374,16 @@ class NanoEmojiGenerator extends FontGenerator {
     int currentCodePoint = 0xE000;
     final List<String> fileArgs = [];
 
-    // Sort to ensure deterministic assignment
-    svgs.sort((a, b) => path.basename(a.path).compareTo(path.basename(b.path)));
+    // Sort to ensure deterministic assignment order
+    files.sort(
+            (a, b) => path.basename(a.path).compareTo(path.basename(b.path)));
 
-    for (var file in svgs) {
+    for (var file in files) {
       final name = path.basenameWithoutExtension(file.path);
-      final ext = path.extension(file.path);
-      final hexCode = currentCodePoint.toRadixString(16).toUpperCase();
+      final ext = path.extension(file.path).toLowerCase();
 
-      // Filename format: icon_name_uE000.svg
-      final newName = '${name}_u$hexCode$ext';
+      final hexCode = currentCodePoint.toRadixString(16).toUpperCase();
+      final newName = 'u$hexCode$ext';
       final newPath = path.join(preparedDir.path, newName);
 
       await file.copy(newPath);
@@ -308,29 +393,41 @@ class NanoEmojiGenerator extends FontGenerator {
       currentCodePoint++;
     }
 
-    // 4. Run Nanoemoji
-    final outputFile = path.join(workspace.path, '$className.ttf');
+    final fontName = ReCase(className).snakeCase;
+    final outputFile = path.join(workspace.path, '$fontName.ttf');
 
-    // We must add venv/bin to path for ninja to work
+    // Add venv/bin to PATH so ninja (build system) is found
+    final venvBin = path.join(venvPath, 'bin');
     final env = {
-      'PATH': '${path.join(venvPath, 'bin')}:${Platform.environment['PATH'] ?? ''}'
+      'PATH': '$venvBin:${Platform.environment['PATH'] ?? ''}'
     };
 
-    logger.info('Running nanoemoji...');
+    logger.info('Running nanoemoji (Setting family to "$className")...');
+
+    // EXECUTION FLAGS:
+    // --color_format glyf_colr_0: Forces COLRv0 (Vector). Max compatibility.
+    // --family: Sets the internal font family name to match Flutter's pubspec.
+    // --upem/ascender/descender: Standardizes metrics.
     await shell.execute(
         nanoPath,
-        ['--output_file', outputFile, ...fileArgs],
+        [
+          '--color_format', 'glyf_colr_0',
+          '--family', className,
+          '--upem', '1000',
+          '--ascender', '1000',
+          '--descender', '0',
+          '--width', '1000',
+          '--output_file', outputFile,
+          ...fileArgs
+        ],
         environment: env,
-        workingDirectory: workspace.path
-    );
+        workingDirectory: workspace.path);
 
     final ttf = File(outputFile);
     if (!ttf.existsSync()) {
       throw ToolException('Nanoemoji failed to generate TTF.');
     }
 
-    // For color fonts, we use our pre-calculated map,
-    // because extracting from COLR tables is painful and brittle.
     return FontGenerationResult(ttf, glyphMap);
   }
 }
@@ -341,7 +438,6 @@ class NanoEmojiGenerator extends FontGenerator {
 
 class SvgProcessingResult {
   final List<File> files;
-  /// Maps 'icon_name' -> '/original/path/to/icon_name.svg' (for comments)
   final Map<String, String> originalPathMap;
   SvgProcessingResult(this.files, this.originalPathMap);
 }
@@ -361,9 +457,10 @@ class SvgProcessor {
     await for (final entity in inputDir.list(recursive: true)) {
       if (entity is File) {
         final ext = path.extension(entity.path).toLowerCase();
-        if (ext == '.svg' || ext == '.png') {
+
+        // STRICT FILTERING: COLRv0 is vector-only.
+        if (ext == '.svg') {
           final baseName = path.basenameWithoutExtension(entity.path);
-          // Sanitize filename for tool compatibility
           final safeName = ReCase(baseName).snakeCase;
 
           final dest = File(path.join(processingDir.path, '$safeName$ext'));
@@ -371,6 +468,9 @@ class SvgProcessor {
 
           validFiles.add(dest);
           originalPaths[safeName] = entity.path;
+        } else if (ext == '.png') {
+          logger.info(
+              '⚠️  Skipping ${path.basename(entity.path)}: PNGs are not supported for high-compatibility Color Fonts (COLRv0). Please convert to SVG.');
         }
       }
     }
@@ -386,30 +486,40 @@ class DartClassGenerator {
     required Map<String, String> originalFileMap,
   }) {
     final library = Library((b) => b
+      ..comments.addAll([
+        'coverage:ignore-file',
+        '*****************************************************',
+        'GENERATED CODE - DO NOT MODIFY BY HAND',
+        '*****************************************************',
+      ])
+      ..generatedByComment = 'kamona_svg_to_font'
+      ..ignoreForFile.addAll([
+        'sort_constructors_first',
+        'public_member_api_docs',
+        'constant_identifier_names',
+      ])
+      ..name = ''
       ..directives.add(Directive.import('package:flutter/widgets.dart'))
       ..body.add(Class((c) => c
         ..name = className
         ..abstract = true
-        ..docs.add('/// Generated by SvgToFont')
         ..constructors.add(Constructor((c) => c..name = '_'))
         ..fields.add(Field((f) => f
           ..name = 'fontFamily'
           ..static = true
           ..modifier = FieldModifier.constant
           ..type = refer('String')
-          ..assignment = literalString(className).code
-        ))
+          ..assignment = literalString(className).code))
         ..fields.add(Field((f) => f
           ..name = 'fontPackage'
           ..static = true
           ..modifier = FieldModifier.constant
           ..type = refer('String?')
-          ..assignment = packageName != null ? literalString(packageName).code : literalNull.code
-        ))
+          ..assignment = packageName != null
+              ? literalString(packageName).code
+              : literalNull.code))
         ..fields.addAll(_buildIconFields(glyphMap, originalFileMap))
-        ..fields.add(_buildAllField(glyphMap))
-      ))
-    );
+        ..fields.add(_buildAllField(glyphMap)))));
 
     final emitter = DartEmitter(
       allocator: Allocator.simplePrefixing(),
@@ -417,10 +527,12 @@ class DartClassGenerator {
       useNullSafetySyntax: true,
     );
 
-    return DartFormatter(languageVersion: DartFormatter.latestLanguageVersion).format('${library.accept(emitter)}');
+    return DartFormatter(languageVersion: DartFormatter.latestLanguageVersion)
+        .format('${library.accept(emitter)}');
   }
 
-  Iterable<Field> _buildIconFields(Map<String, int> glyphs, Map<String, String> originalPaths) {
+  Iterable<Field> _buildIconFields(
+      Map<String, int> glyphs, Map<String, String> originalPaths) {
     return glyphs.entries.map((e) {
       final sanitizedName = _sanitizeIdentifier(e.key);
       final originalPath = originalPaths[e.key] ?? 'unknown';
@@ -432,13 +544,12 @@ class DartClassGenerator {
         ..type = refer('IconData')
         ..docs.add('/// File: $originalPath')
         ..assignment = refer('IconData').call([
-          // Use CodeExpression to force hex format instead of literalNum(e.value)
+          // Use Hex format (0xE001) for readability
           CodeExpression(Code('0x${e.value.toRadixString(16)}')),
         ], {
           'fontFamily': refer('fontFamily'),
           'fontPackage': refer('fontPackage'),
-        }).code
-      );
+        }).code);
     });
   }
 
@@ -454,15 +565,14 @@ class DartClassGenerator {
       ..static = true
       ..modifier = FieldModifier.constant
       ..type = refer('Map<String, IconData>')
-      ..assignment = literalMap(mapContent, refer('String'), refer('IconData')).code
-    );
+      ..assignment =
+          literalMap(mapContent, refer('String'), refer('IconData')).code);
   }
 
   String _sanitizeIdentifier(String name) {
     String safe = ReCase(name).snakeCase;
-    // Handle reserved keywords or invalid starts
     if (RegExp(r'^[0-9]').hasMatch(safe) || _dartKeywords.contains(safe)) {
-      return 'icon_$safe'; // Prefix to make valid
+      return 'icon_$safe';
     }
     return safe;
   }
@@ -476,7 +586,8 @@ class ShellExecutor {
   final Logger logger;
   ShellExecutor(this.logger);
 
-  Future<void> execute(String executable, List<String> args, {String? workingDirectory, Map<String, String>? environment}) async {
+  Future<void> execute(String executable, List<String> args,
+      {String? workingDirectory, Map<String, String>? environment}) async {
     logger.debug('EXEC: $executable ${args.join(' ')}');
     final result = await Process.start(
       executable,
@@ -486,17 +597,14 @@ class ShellExecutor {
       runInShell: true,
     );
 
-    // Buffers to capture output for error reporting
     final stdoutBuffer = StringBuffer();
     final stderrBuffer = StringBuffer();
 
-    // Capture standard output
     result.stdout.transform(utf8.decoder).listen((data) {
       if (logger.verbose) stdout.write(data);
       stdoutBuffer.write(data);
     });
 
-    // Capture error output
     result.stderr.transform(utf8.decoder).listen((data) {
       if (logger.verbose) stderr.write(data);
       stderrBuffer.write(data);
@@ -504,7 +612,6 @@ class ShellExecutor {
 
     final code = await result.exitCode;
     if (code != 0) {
-      // If we weren't verbose, the user hasn't seen the error yet. Print it now.
       if (!logger.verbose) {
         final errorOut = stderrBuffer.toString();
         final stdOut = stdoutBuffer.toString();
@@ -513,7 +620,6 @@ class ShellExecutor {
         if (errorOut.trim().isNotEmpty) {
           logger.error(errorOut);
         } else if (stdOut.trim().isNotEmpty) {
-          // Some tools output errors to stdout
           logger.error(stdOut);
         } else {
           logger.error('No output captured.');
