@@ -557,7 +557,10 @@ class DartClassGenerator {
     final mapContent = <Object, Object>{};
     for (final key in glyphs.keys) {
       final sanitized = _sanitizeIdentifier(key);
-      mapContent[sanitized] = refer(sanitized);
+      // Use the ORIGINAL glyph name as the map key (string), and the sanitized
+      // identifier as the value reference. This prevents reserved words from
+      // appearing as unquoted identifiers in generated code.
+      mapContent[key] = refer(sanitized);
     }
 
     return Field((f) => f
@@ -570,10 +573,30 @@ class DartClassGenerator {
   }
 
   String _sanitizeIdentifier(String name) {
+    // Convert to snake_case first
     String safe = ReCase(name).snakeCase;
-    if (RegExp(r'^[0-9]').hasMatch(safe) || _dartKeywords.contains(safe)) {
-      return 'icon_$safe';
+
+    // Remove any characters not allowed in Dart identifiers (keep a-z, 0-9, and _)
+    safe = safe.replaceAll(RegExp(r'[^a-z0-9_]+'), '');
+
+    // If empty after cleaning, give a default base name
+    if (safe.isEmpty) safe = 'icon';
+
+    // Ensure it starts with a letter or underscore; if not, prefix to make valid
+    if (!RegExp(r'^[a-zA-Z_]').hasMatch(safe)) {
+      safe = 'icon_$safe';
     }
+
+    // If it starts with a digit (edge-case after replacements), prefix as well
+    if (RegExp(r'^[0-9]').hasMatch(safe)) {
+      safe = 'icon_$safe';
+    }
+
+    // If the sanitized name is a Dart keyword, suffix with `_icon` instead of prefixing.
+    if (_dartKeywords.contains(safe)) {
+      safe = '${safe}_icon';
+    }
+
     return safe;
   }
 
