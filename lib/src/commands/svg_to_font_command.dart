@@ -35,28 +35,61 @@ import '../templates/fantasticon_config_template.dart';
 class SvgToFontCommand extends Command<int> {
   SvgToFontCommand() {
     argParser
-      ..addOption(svgInputDir,
-          abbr: 'i', help: 'Input path of SVG files', mandatory: true)
-      ..addOption(fontOutputDir,
-          abbr: 'o', help: 'Output path for .ttf fonts', mandatory: true)
-      ..addOption(iconsOutputDir,
-          abbr: 'c', help: 'Output path for Dart class', mandatory: true)
-      ..addOption(iconsClassName,
-          abbr: 'n',
-          defaultsTo: defaultIconsClassName,
-          help: 'Class name for icons (e.g., MyIcons)')
-      ..addOption(iconsPackageName,
-          abbr: 'p',
-          help: 'Package name (if generating for a package/library)')
-      ..addFlag(deleteInput,
-          defaultsTo: false, help: 'Delete input SVGs after generation')
-      ..addFlag(useColor,
-          defaultsTo: false,
-          help: 'Enable colored icon generation (Requires Python/Nanoemoji)')
-      ..addFlag(verbose,
-          abbr: 'v', defaultsTo: false, help: 'Show detailed logs')
-      ..addFlag(keepTemp,
-          defaultsTo: false, help: 'Keep temporary files for debugging');
+      ..addOption(
+        svgInputDir,
+        abbr: 'i',
+        help: 'Input path of SVG files',
+        mandatory: true,
+      )
+      ..addOption(
+        fontOutputDir,
+        abbr: 'o',
+        help: 'Output path for .ttf fonts',
+        mandatory: true,
+      )
+      ..addOption(
+        iconsOutputDir,
+        abbr: 'c',
+        help: 'Output path for Dart class',
+        mandatory: true,
+      )
+      ..addOption(
+        iconsClassName,
+        abbr: 'n',
+        defaultsTo: defaultIconsClassName,
+        help: 'Class name for icons (e.g., MyIcons)',
+      )
+      ..addOption(
+        iconsPackageName,
+        abbr: 'p',
+        help: 'Package name (if generating for a package/library)',
+      )
+      ..addFlag(
+        allIconsMap,
+        defaultsTo: true,
+        help: 'Includes map of all icons to the generated dart class',
+      )
+      ..addFlag(
+        deleteInput,
+        defaultsTo: false,
+        help: 'Delete input SVGs after generation',
+      )
+      ..addFlag(
+        useColor,
+        defaultsTo: false,
+        help: 'Enable colored icon generation (Requires Python/Nanoemoji)',
+      )
+      ..addFlag(
+        verbose,
+        abbr: 'v',
+        defaultsTo: false,
+        help: 'Show detailed logs',
+      )
+      ..addFlag(
+        keepTemp,
+        defaultsTo: false,
+        help: 'Keep temporary files for debugging',
+      );
   }
 
   @override
@@ -70,8 +103,8 @@ class SvgToFontCommand extends Command<int> {
   Future<int> run() async {
     final bool isVerbose = argResults![verbose];
     final bool shouldKeepTemp = argResults![keepTemp];
-    final logger = Logger(verbose: isVerbose);
-    final shell = ShellExecutor(logger);
+    final Logger logger = Logger(verbose: isVerbose);
+    final ShellExecutor shell = ShellExecutor(logger);
 
     Directory? workspaceDir;
 
@@ -79,29 +112,31 @@ class SvgToFontCommand extends Command<int> {
       logger.info('🚀 Starting SvgToFont generation...');
 
       // 1. Setup Workspace (Use System Temp to avoid permission issues)
-      workspaceDir =
-          Directory.systemTemp.createTempSync('svg_to_font_build_');
+      workspaceDir = Directory.systemTemp.createTempSync('svg_to_font_build_');
       logger.debug('Workspace created at: ${workspaceDir.path}');
 
       // 2. Parse Inputs
-      final inputDir = Directory(argResults![svgInputDir]);
-      final fontOutDir = Directory(argResults![fontOutputDir]);
-      final iconsOutDir = Directory(argResults![iconsOutputDir]);
-      final className = argResults![iconsClassName];
-      final packageName = argResults![iconsPackageName];
-      final isColor = argResults![useColor];
+      final Directory inputDir = Directory(argResults![svgInputDir]);
+      final Directory fontOutDir = Directory(argResults![fontOutputDir]);
+      final Directory iconsOutDir = Directory(argResults![iconsOutputDir]);
+      final String className = argResults![iconsClassName];
+      final String? packageName = argResults![iconsPackageName];
+      final bool includeAll = argResults![allIconsMap];
+      final bool isColor = argResults![useColor];
 
       if (!inputDir.existsSync()) {
         throw ToolException('Input directory does not exist: ${inputDir.path}');
       }
 
       // 3. Normalize SVGs
-      final processor = SvgProcessor(logger, workspaceDir);
-      final processingResult = await processor.prepareSvgs(inputDir);
+      final SvgProcessor processor = SvgProcessor(logger, workspaceDir);
+      final SvgProcessingResult processingResult =
+          await processor.prepareSvgs(inputDir);
 
       if (processingResult.files.isEmpty) {
         throw ToolException(
-            'No supported files (SVG) found in ${inputDir.path}. Note: PNGs are not supported.');
+          'No supported files (SVG) found in ${inputDir.path}. Note: PNGs are not supported.',
+        );
       }
 
       // 4. Select Strategy & Generate Font
@@ -110,30 +145,32 @@ class SvgToFontCommand extends Command<int> {
           : FantasticonGenerator(shell, logger, workspaceDir);
 
       logger.info(
-          '🛠  Checking prerequisites for ${isColor ? "Color" : "Mono"} mode...');
+        '🛠  Checking prerequisites for ${isColor ? "Color" : "Mono"} mode...',
+      );
       await generator.checkPrerequisites();
 
       logger.info('⚙️  Generating font...');
-      final generationResult = await generator.generate(
+      final FontGenerationResult generationResult = await generator.generate(
         processingResult.files,
         className,
       );
 
       // Print Mapping Table for Debugging
       logger.info('\n📊 Icon Mapping Table (Verify these match Dart code):');
-      generationResult.glyphMap.forEach((name, code) {
+      generationResult.glyphMap.forEach((String name, int code) {
         logger.info('  $name -> 0x${code.toRadixString(16).toUpperCase()}');
       });
       logger.info('');
 
       // 5. Generate Flutter Code
       logger.info('📝 Generating Dart code...');
-      final codeGenerator = DartClassGenerator();
-      final dartCode = codeGenerator.generate(
+      final DartClassGenerator codeGenerator = DartClassGenerator();
+      final String dartCode = codeGenerator.generate(
         className: className,
         packageName: packageName,
         glyphMap: generationResult.glyphMap,
         originalFileMap: processingResult.originalPathMap,
+        includeAll: includeAll,
       );
 
       // 6. Delivery
@@ -152,17 +189,19 @@ class SvgToFontCommand extends Command<int> {
         await inputDir.delete(recursive: true);
       }
 
-      final fontFileName = '${ReCase(className).snakeCase}.ttf';
+      final String fontFileName = '${ReCase(className).snakeCase}.ttf';
 
       logger.success('✅ Generation complete!');
 
       // Critical Instruction for Flutter Developers
       logger.info(
-          '⚠️  CRITICAL: You MUST run the following commands to clear the font cache:');
+        '⚠️  CRITICAL: You MUST run the following commands to clear the font cache:',
+      );
       logger.info('   flutter clean');
       logger.info('   flutter pub get');
       logger.info(
-          '   (Then uninstall the app from the simulator/device before running again)');
+        '   (Then uninstall the app from the simulator/device before running again)',
+      );
 
       logger.info('\n📝 pubspec.yaml entry:');
       logger.info('''
@@ -177,7 +216,9 @@ class SvgToFontCommand extends Command<int> {
       return 1;
     } catch (e, stack) {
       logger.error('Unexpected error: $e');
-      if (isVerbose) logger.error(stack.toString());
+      if (isVerbose) {
+        logger.error(stack.toString());
+      }
       return 1;
     } finally {
       if (workspaceDir != null && workspaceDir.existsSync()) {
@@ -203,25 +244,28 @@ class SvgToFontCommand extends Command<int> {
     required String className,
     required Logger logger,
   }) async {
-    if (!fontOutputDir.existsSync())
+    if (!fontOutputDir.existsSync()) {
       await fontOutputDir.create(recursive: true);
-    if (!iconsOutputDir.existsSync())
+    }
+    if (!iconsOutputDir.existsSync()) {
       await iconsOutputDir.create(recursive: true);
+    }
 
-    final fontFileName = '${ReCase(className).snakeCase}.ttf';
-    final targetFontPath = path.join(fontOutputDir.path, fontFileName);
+    final String fontFileName = '${ReCase(className).snakeCase}.ttf';
+    final String targetFontPath = path.join(fontOutputDir.path, fontFileName);
 
     // Sanity check
     if (await fontFile.length() < 100) {
       throw ToolException(
-          'Generated font file is suspiciously small or empty. Generation likely failed.');
+        'Generated font file is suspiciously small or empty. Generation likely failed.',
+      );
     }
 
     await fontFile.copy(targetFontPath);
     logger.info('Checking out font: $targetFontPath');
 
-    final targetDartPath =
-    path.join(iconsOutputDir.path, '${ReCase(className).snakeCase}.dart');
+    final String targetDartPath =
+        path.join(iconsOutputDir.path, '${ReCase(className).snakeCase}.dart');
     await File(targetDartPath).writeAsString(dartContent);
     logger.info('Checking out code: $targetDartPath');
   }
@@ -232,20 +276,21 @@ class SvgToFontCommand extends Command<int> {
 // =============================================================================
 
 class FontGenerationResult {
+  FontGenerationResult(this.fontFile, this.glyphMap);
+
   final File fontFile;
   final Map<String, int> glyphMap;
-
-  FontGenerationResult(this.fontFile, this.glyphMap);
 }
 
 abstract class FontGenerator {
+  FontGenerator(this.shell, this.logger, this.workspace);
+
   final ShellExecutor shell;
   final Logger logger;
   final Directory workspace;
 
-  FontGenerator(this.shell, this.logger, this.workspace);
-
   Future<void> checkPrerequisites();
+
   Future<FontGenerationResult> generate(List<File> files, String className);
 }
 
@@ -258,8 +303,8 @@ class FantasticonGenerator extends FontGenerator {
   @override
   Future<void> checkPrerequisites() async {
     try {
-      await shell.execute('node', ['--version']);
-      await shell.execute('npm', ['--version']);
+      await shell.execute('node', <String>['--version']);
+      await shell.execute('npm', <String>['--version']);
     } catch (e) {
       throw ToolException('NodeJS and NPM are required. Please install them.');
     }
@@ -267,32 +312,42 @@ class FantasticonGenerator extends FontGenerator {
 
   @override
   Future<FontGenerationResult> generate(
-      List<File> files, String className) async {
+    List<File> files,
+    String className,
+  ) async {
     if (files.isEmpty) {
       throw ToolException('No files provided for mono generation.');
     }
 
-    final packageJson = File(path.join(workspace.path, 'package.json'));
+    final File packageJson = File(path.join(workspace.path, 'package.json'));
     await packageJson
         .writeAsString('{"name": "temp_font_gen", "private": true}');
 
     logger.info('Installing fantasticon in temporary workspace...');
-    await shell.execute('npm', ['install', 'fantasticon'],
-        workingDirectory: workspace.path);
+    await shell.execute(
+      'npm',
+      <String>['install', 'fantasticon'],
+      workingDirectory: workspace.path,
+    );
 
-    final inputDir = Directory(path.join(workspace.path, 'icons'));
-    if (!inputDir.existsSync()) inputDir.createSync();
+    final Directory inputDir = Directory(path.join(workspace.path, 'icons'));
+    if (!inputDir.existsSync()) {
+      inputDir.createSync();
+    }
 
-    for (var f in files) {
+    for (final File f in files) {
       await f.copy(path.join(inputDir.path, path.basename(f.path)));
     }
 
-    final outputDir = Directory(path.join(workspace.path, 'out'));
-    if (!outputDir.existsSync()) outputDir.createSync();
+    final Directory outputDir = Directory(path.join(workspace.path, 'out'));
+    if (!outputDir.existsSync()) {
+      outputDir.createSync();
+    }
 
-    final fontName = ReCase(className).snakeCase;
+    final String fontName = ReCase(className).snakeCase;
 
-    final configFile = File(path.join(workspace.path, 'fantasticonrc.json'));
+    final File configFile =
+        File(path.join(workspace.path, 'fantasticonrc.json'));
     if (!configFile.existsSync()) {
       try {
         await configFile.writeAsString(fantasticonConfigTemplate);
@@ -301,34 +356,36 @@ class FantasticonGenerator extends FontGenerator {
       }
     }
 
-    await configFile.writeAsString(jsonEncode({
-      'name': fontName,
-      'outputDir': outputDir.path,
-      'inputDir': inputDir.path,
-      'fontTypes': ['ttf'],
-      'assetTypes': ['json'],
-      'formatOptions': {
-        'json': {'indent': 2}
-      }
-    }));
+    await configFile.writeAsString(
+      jsonEncode(<String, Object>{
+        'name': fontName,
+        'outputDir': outputDir.path,
+        'inputDir': inputDir.path,
+        'fontTypes': <String>['ttf'],
+        'assetTypes': <String>['json'],
+        'formatOptions': <String, Map<String, int>>{
+          'json': <String, int>{'indent': 2},
+        },
+      }),
+    );
 
     await shell.execute(
       path.join(workspace.path, 'node_modules', '.bin', 'fantasticon'),
-      ['-c', configFile.path],
+      <String>['-c', configFile.path],
       workingDirectory: workspace.path,
     );
 
-    final ttf = File(path.join(outputDir.path, '$fontName.ttf'));
-    final mapFile = File(path.join(outputDir.path, '$fontName.json'));
+    final File ttf = File(path.join(outputDir.path, '$fontName.ttf'));
+    final File mapFile = File(path.join(outputDir.path, '$fontName.json'));
 
     if (!ttf.existsSync() || !mapFile.existsSync()) {
       throw ToolException('Fantasticon failed to produce output files.');
     }
 
     final Map<String, dynamic> rawMap =
-    jsonDecode(await mapFile.readAsString());
-    final Map<String, int> glyphMap =
-    rawMap.map((key, value) => MapEntry(key, value as int));
+        jsonDecode(await mapFile.readAsString());
+    final Map<String, int> glyphMap = rawMap.map((String key, dynamic value) =>
+        MapEntry<String, int>(key, value as int));
 
     return FontGenerationResult(ttf, glyphMap);
   }
@@ -345,7 +402,7 @@ class NanoEmojiGenerator extends FontGenerator {
   @override
   Future<void> checkPrerequisites() async {
     try {
-      await shell.execute('python3', ['--version']);
+      await shell.execute('python3', <String>['--version']);
     } catch (e) {
       throw ToolException('Python 3 is required for color fonts.');
     }
@@ -353,38 +410,46 @@ class NanoEmojiGenerator extends FontGenerator {
 
   @override
   Future<FontGenerationResult> generate(
-      List<File> files, String className) async {
-    final venvPath = path.join(workspace.path, 'venv');
+    List<File> files,
+    String className,
+  ) async {
+    final String venvPath = path.join(workspace.path, 'venv');
     logger.info('Creating Python virtual environment...');
-    await shell.execute('python3', ['-m', 'venv', venvPath]);
+    await shell.execute('python3', <String>['-m', 'venv', venvPath]);
 
-    final pipPath = path.join(venvPath, 'bin', 'pip');
-    final nanoPath = path.join(venvPath, 'bin', 'nanoemoji');
+    final String pipPath = path.join(venvPath, 'bin', 'pip');
+    final String nanoPath = path.join(venvPath, 'bin', 'nanoemoji');
 
     logger.info('Installing nanoemoji (this may take a moment)...');
-    await shell.execute(pipPath, ['install', 'nanoemoji', 'ninja'],
-        workingDirectory: workspace.path);
+    await shell.execute(
+      pipPath,
+      <String>['install', 'nanoemoji', 'ninja'],
+      workingDirectory: workspace.path,
+    );
 
     // Prepare Files with PUA Codepoints
     // We strictly rename files to `uE000.svg` to prevent system emoji conflicts.
-    final preparedDir = Directory(path.join(workspace.path, 'prepared_icons'));
+    final Directory preparedDir =
+        Directory(path.join(workspace.path, 'prepared_icons'));
     preparedDir.createSync();
 
-    final Map<String, int> glyphMap = {};
+    final Map<String, int> glyphMap = <String, int>{};
     int currentCodePoint = 0xE000;
-    final List<String> fileArgs = [];
+    final List<String> fileArgs = <String>[];
 
     // Sort to ensure deterministic assignment order
     files.sort(
-            (a, b) => path.basename(a.path).compareTo(path.basename(b.path)));
+      (File a, File b) =>
+          path.basename(a.path).compareTo(path.basename(b.path)),
+    );
 
-    for (var file in files) {
-      final name = path.basenameWithoutExtension(file.path);
-      final ext = path.extension(file.path).toLowerCase();
+    for (File file in files) {
+      final String name = path.basenameWithoutExtension(file.path);
+      final String ext = path.extension(file.path).toLowerCase();
 
-      final hexCode = currentCodePoint.toRadixString(16).toUpperCase();
-      final newName = 'u$hexCode$ext';
-      final newPath = path.join(preparedDir.path, newName);
+      final String hexCode = currentCodePoint.toRadixString(16).toUpperCase();
+      final String newName = 'u$hexCode$ext';
+      final String newPath = path.join(preparedDir.path, newName);
 
       await file.copy(newPath);
 
@@ -393,13 +458,13 @@ class NanoEmojiGenerator extends FontGenerator {
       currentCodePoint++;
     }
 
-    final fontName = ReCase(className).snakeCase;
-    final outputFile = path.join(workspace.path, '$fontName.ttf');
+    final String fontName = ReCase(className).snakeCase;
+    final String outputFile = path.join(workspace.path, '$fontName.ttf');
 
     // Add venv/bin to PATH so ninja (build system) is found
-    final venvBin = path.join(venvPath, 'bin');
-    final env = {
-      'PATH': '$venvBin:${Platform.environment['PATH'] ?? ''}'
+    final String venvBin = path.join(venvPath, 'bin');
+    final Map<String, String> env = <String, String>{
+      'PATH': '$venvBin:${Platform.environment['PATH'] ?? ''}',
     };
 
     logger.info('Running nanoemoji (Setting family to "$className")...');
@@ -409,21 +474,29 @@ class NanoEmojiGenerator extends FontGenerator {
     // --family: Sets the internal font family name to match Flutter's pubspec.
     // --upem/ascender/descender: Standardizes metrics.
     await shell.execute(
-        nanoPath,
-        [
-          '--color_format', 'glyf_colr_0',
-          '--family', className,
-          '--upem', '1000',
-          '--ascender', '1000',
-          '--descender', '0',
-          '--width', '1000',
-          '--output_file', outputFile,
-          ...fileArgs
-        ],
-        environment: env,
-        workingDirectory: workspace.path);
+      nanoPath,
+      <String>[
+        '--color_format',
+        'glyf_colr_0',
+        '--family',
+        className,
+        '--upem',
+        '1000',
+        '--ascender',
+        '1000',
+        '--descender',
+        '0',
+        '--width',
+        '1000',
+        '--output_file',
+        outputFile,
+        ...fileArgs,
+      ],
+      environment: env,
+      workingDirectory: workspace.path,
+    );
 
-    final ttf = File(outputFile);
+    final File ttf = File(outputFile);
     if (!ttf.existsSync()) {
       throw ToolException('Nanoemoji failed to generate TTF.');
     }
@@ -437,40 +510,45 @@ class NanoEmojiGenerator extends FontGenerator {
 // =============================================================================
 
 class SvgProcessingResult {
+  SvgProcessingResult(this.files, this.originalPathMap);
+
   final List<File> files;
   final Map<String, String> originalPathMap;
-  SvgProcessingResult(this.files, this.originalPathMap);
 }
 
 class SvgProcessor {
+  SvgProcessor(this.logger, this.workspace);
+
   final Logger logger;
   final Directory workspace;
 
-  SvgProcessor(this.logger, this.workspace);
-
   Future<SvgProcessingResult> prepareSvgs(Directory inputDir) async {
-    final List<File> validFiles = [];
-    final Map<String, String> originalPaths = {};
-    final processingDir = Directory(path.join(workspace.path, 'raw_icons'));
+    final List<File> validFiles = <File>[];
+    final Map<String, String> originalPaths = <String, String>{};
+    final Directory processingDir =
+        Directory(path.join(workspace.path, 'raw_icons'));
     processingDir.createSync();
 
-    await for (final entity in inputDir.list(recursive: true)) {
+    await for (final FileSystemEntity entity
+        in inputDir.list(recursive: true)) {
       if (entity is File) {
-        final ext = path.extension(entity.path).toLowerCase();
+        final String ext = path.extension(entity.path).toLowerCase();
 
         // STRICT FILTERING: COLRv0 is vector-only.
         if (ext == '.svg') {
-          final baseName = path.basenameWithoutExtension(entity.path);
-          final safeName = ReCase(baseName).snakeCase;
+          final String baseName = path.basenameWithoutExtension(entity.path);
+          final String safeName = ReCase(baseName).snakeCase;
 
-          final dest = File(path.join(processingDir.path, '$safeName$ext'));
+          final File dest =
+              File(path.join(processingDir.path, '$safeName$ext'));
           await entity.copy(dest.path);
 
           validFiles.add(dest);
           originalPaths[safeName] = entity.path;
         } else if (ext == '.png') {
           logger.info(
-              '⚠️  Skipping ${path.basename(entity.path)}: PNGs are not supported for high-compatibility Color Fonts (COLRv0). Please convert to SVG.');
+            '⚠️  Skipping ${path.basename(entity.path)}: PNGs are not supported for high-compatibility Color Fonts (COLRv0). Please convert to SVG.',
+          );
         }
       }
     }
@@ -484,44 +562,64 @@ class DartClassGenerator {
     required String? packageName,
     required Map<String, int> glyphMap,
     required Map<String, String> originalFileMap,
+    required bool includeAll,
   }) {
-    final library = Library((b) => b
-      ..comments.addAll([
-        'coverage:ignore-file',
-        '*****************************************************',
-        'GENERATED CODE - DO NOT MODIFY BY HAND',
-        '*****************************************************',
-      ])
-      ..generatedByComment = 'kamona_svg_to_font'
-      ..ignoreForFile.addAll([
-        'sort_constructors_first',
-        'public_member_api_docs',
-        'constant_identifier_names',
-      ])
-      ..name = ''
-      ..directives.add(Directive.import('package:flutter/widgets.dart'))
-      ..body.add(Class((c) => c
-        ..name = className
-        ..abstract = true
-        ..constructors.add(Constructor((c) => c..name = '_'))
-        ..fields.add(Field((f) => f
-          ..name = 'fontFamily'
-          ..static = true
-          ..modifier = FieldModifier.constant
-          ..type = refer('String')
-          ..assignment = literalString(className).code))
-        ..fields.add(Field((f) => f
-          ..name = 'fontPackage'
-          ..static = true
-          ..modifier = FieldModifier.constant
-          ..type = refer('String?')
-          ..assignment = packageName != null
-              ? literalString(packageName).code
-              : literalNull.code))
-        ..fields.addAll(_buildIconFields(glyphMap, originalFileMap))
-        ..fields.add(_buildAllField(glyphMap)))));
+    final Library library = Library(
+      (LibraryBuilder b) => b
+        ..comments.addAll(<String>[
+          'coverage:ignore-file',
+          '*****************************************************',
+          'GENERATED CODE - DO NOT MODIFY BY HAND',
+          '*****************************************************',
+        ])
+        ..generatedByComment = 'kamona_svg_to_font'
+        ..ignoreForFile.addAll(<String>[
+          'sort_constructors_first',
+          'public_member_api_docs',
+          'constant_identifier_names',
+        ])
+        ..name = ''
+        ..directives.add(Directive.import('package:flutter/widgets.dart'))
+        ..body.add(
+          Class(
+            (ClassBuilder c) {
+              c
+                ..name = className
+                ..abstract = true
+                ..constructors
+                    .add(Constructor((ConstructorBuilder c) => c..name = '_'))
+                ..fields.add(
+                  Field(
+                    (FieldBuilder f) => f
+                      ..name = 'fontFamily'
+                      ..static = true
+                      ..modifier = FieldModifier.constant
+                      ..type = refer('String')
+                      ..assignment = literalString(className).code,
+                  ),
+                )
+                ..fields.add(
+                  Field(
+                    (FieldBuilder f) => f
+                      ..name = 'fontPackage'
+                      ..static = true
+                      ..modifier = FieldModifier.constant
+                      ..type = refer(packageName != null ? 'String' : 'String?')
+                      ..assignment = packageName != null
+                          ? literalString(packageName).code
+                          : literalNull.code,
+                  ),
+                )
+                ..fields.addAll(_buildIconFields(glyphMap, originalFileMap));
+              if (includeAll) {
+                c.fields.add(_buildAllField(glyphMap));
+              }
+            },
+          ),
+        ),
+    );
 
-    final emitter = DartEmitter(
+    final DartEmitter emitter = DartEmitter(
       allocator: Allocator.simplePrefixing(),
       orderDirectives: true,
       useNullSafetySyntax: true,
@@ -532,44 +630,50 @@ class DartClassGenerator {
   }
 
   Iterable<Field> _buildIconFields(
-      Map<String, int> glyphs, Map<String, String> originalPaths) {
-    return glyphs.entries.map((e) {
-      final sanitizedName = _sanitizeIdentifier(e.key);
-      final originalPath = originalPaths[e.key] ?? 'unknown';
+    Map<String, int> glyphs,
+    Map<String, String> originalPaths,
+  ) {
+    return glyphs.entries.map((MapEntry<String, int> e) {
+      final String sanitizedName = _sanitizeIdentifier(e.key);
+      final String originalPath = originalPaths[e.key] ?? 'unknown';
 
-      return Field((f) => f
-        ..name = sanitizedName
-        ..static = true
-        ..modifier = FieldModifier.constant
-        ..type = refer('IconData')
-        ..docs.add('/// File: $originalPath')
-        ..assignment = refer('IconData').call([
-          // Use Hex format (0xE001) for readability
-          CodeExpression(Code('0x${e.value.toRadixString(16)}')),
-        ], {
-          'fontFamily': refer('fontFamily'),
-          'fontPackage': refer('fontPackage'),
-        }).code);
+      return Field(
+        (FieldBuilder f) => f
+          ..name = sanitizedName
+          ..static = true
+          ..modifier = FieldModifier.constant
+          ..type = refer('IconData')
+          ..docs.add('/// File: $originalPath')
+          ..assignment = refer('IconData').call(<Expression>[
+            // Use Hex format (0xE001) for readability
+            CodeExpression(Code('0x${e.value.toRadixString(16)}')),
+          ], <String, Expression>{
+            'fontFamily': refer('fontFamily'),
+            'fontPackage': refer('fontPackage'),
+          }).code,
+      );
     });
   }
 
   Field _buildAllField(Map<String, int> glyphs) {
-    final mapContent = <Object, Object>{};
-    for (final key in glyphs.keys) {
-      final sanitized = _sanitizeIdentifier(key);
+    final Map<Object, Object> mapContent = <Object, Object>{};
+    for (final String key in glyphs.keys) {
+      final String sanitized = _sanitizeIdentifier(key);
       // Use the ORIGINAL glyph name as the map key (string), and the sanitized
       // identifier as the value reference. This prevents reserved words from
       // appearing as unquoted identifiers in generated code.
       mapContent[key] = refer(sanitized);
     }
 
-    return Field((f) => f
-      ..name = 'all'
-      ..static = true
-      ..modifier = FieldModifier.constant
-      ..type = refer('Map<String, IconData>')
-      ..assignment =
-          literalMap(mapContent, refer('String'), refer('IconData')).code);
+    return Field(
+      (FieldBuilder f) => f
+        ..name = 'all'
+        ..static = true
+        ..modifier = FieldModifier.constant
+        ..type = refer('Map<String, IconData>')
+        ..assignment =
+            literalMap(mapContent, refer('String'), refer('IconData')).code,
+    );
   }
 
   String _sanitizeIdentifier(String name) {
@@ -580,7 +684,9 @@ class DartClassGenerator {
     safe = safe.replaceAll(RegExp(r'[^a-z0-9_]+'), '');
 
     // If empty after cleaning, give a default base name
-    if (safe.isEmpty) safe = 'icon';
+    if (safe.isEmpty) {
+      safe = 'icon';
+    }
 
     // Ensure it starts with a letter or underscore; if not, prefix to make valid
     if (!RegExp(r'^[a-zA-Z_]').hasMatch(safe)) {
@@ -600,19 +706,84 @@ class DartClassGenerator {
     return safe;
   }
 
-  static const _dartKeywords = {
-    'abstract', 'else', 'import', 'show', 'as', 'enum', 'in', 'static', 'assert', 'export', 'interface', 'super', 'async', 'extends', 'is', 'switch', 'await', 'extension', 'library', 'sync', 'break', 'external', 'mixin', 'this', 'case', 'factory', 'new', 'throw', 'catch', 'false', 'null', 'true', 'class', 'final', 'on', 'try', 'const', 'finally', 'operator', 'typedef', 'continue', 'for', 'part', 'var', 'covariant', 'function', 'rethrow', 'void', 'default', 'get', 'return', 'while', 'deferred', 'hide', 'set', 'with', 'do', 'if', 'dynamic', 'implements', 'yield'
+  static const Set<String> _dartKeywords = <String>{
+    'abstract',
+    'else',
+    'import',
+    'show',
+    'as',
+    'enum',
+    'in',
+    'static',
+    'assert',
+    'export',
+    'interface',
+    'super',
+    'async',
+    'extends',
+    'is',
+    'switch',
+    'await',
+    'extension',
+    'library',
+    'sync',
+    'break',
+    'external',
+    'mixin',
+    'this',
+    'case',
+    'factory',
+    'new',
+    'throw',
+    'catch',
+    'false',
+    'null',
+    'true',
+    'class',
+    'final',
+    'on',
+    'try',
+    'const',
+    'finally',
+    'operator',
+    'typedef',
+    'continue',
+    'for',
+    'part',
+    'var',
+    'covariant',
+    'function',
+    'rethrow',
+    'void',
+    'default',
+    'get',
+    'return',
+    'while',
+    'deferred',
+    'hide',
+    'set',
+    'with',
+    'do',
+    'if',
+    'dynamic',
+    'implements',
+    'yield',
   };
 }
 
 class ShellExecutor {
-  final Logger logger;
   ShellExecutor(this.logger);
 
-  Future<void> execute(String executable, List<String> args,
-      {String? workingDirectory, Map<String, String>? environment}) async {
+  final Logger logger;
+
+  Future<void> execute(
+    String executable,
+    List<String> args, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+  }) async {
     logger.debug('EXEC: $executable ${args.join(' ')}');
-    final result = await Process.start(
+    final Process result = await Process.start(
       executable,
       args,
       workingDirectory: workingDirectory,
@@ -620,24 +791,28 @@ class ShellExecutor {
       runInShell: true,
     );
 
-    final stdoutBuffer = StringBuffer();
-    final stderrBuffer = StringBuffer();
+    final StringBuffer stdoutBuffer = StringBuffer();
+    final StringBuffer stderrBuffer = StringBuffer();
 
-    result.stdout.transform(utf8.decoder).listen((data) {
-      if (logger.verbose) stdout.write(data);
+    result.stdout.transform(utf8.decoder).listen((String data) {
+      if (logger.verbose) {
+        stdout.write(data);
+      }
       stdoutBuffer.write(data);
     });
 
-    result.stderr.transform(utf8.decoder).listen((data) {
-      if (logger.verbose) stderr.write(data);
+    result.stderr.transform(utf8.decoder).listen((String data) {
+      if (logger.verbose) {
+        stderr.write(data);
+      }
       stderrBuffer.write(data);
     });
 
-    final code = await result.exitCode;
+    final int code = await result.exitCode;
     if (code != 0) {
       if (!logger.verbose) {
-        final errorOut = stderrBuffer.toString();
-        final stdOut = stdoutBuffer.toString();
+        final String errorOut = stderrBuffer.toString();
+        final String stdOut = stdoutBuffer.toString();
 
         logger.error('Command failed (Exit Code $code):');
         if (errorOut.trim().isNotEmpty) {
@@ -654,20 +829,28 @@ class ShellExecutor {
 }
 
 class Logger {
-  final bool verbose;
   Logger({required this.verbose});
 
+  final bool verbose;
+
   void info(String msg) => stdout.writeln(msg);
+
   void success(String msg) => stdout.writeln('\x1b[32m$msg\x1b[0m');
+
   void error(String msg) => stderr.writeln('\x1b[31m$msg\x1b[0m');
+
   void debug(String msg) {
-    if (verbose) stdout.writeln('\x1b[90m[DEBUG] $msg\x1b[0m');
+    if (verbose) {
+      stdout.writeln('\x1b[90m[DEBUG] $msg\x1b[0m');
+    }
   }
 }
 
 class ToolException implements Exception {
-  final String message;
   ToolException(this.message);
+
+  final String message;
+
   @override
   String toString() => message;
 }

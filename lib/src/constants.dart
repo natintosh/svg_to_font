@@ -22,6 +22,9 @@ const String deleteInput = 'delete-input';
 /// Is use color font
 const String useColor = 'color';
 
+/// Is all icons map included
+const String allIconsMap = 'all-icons-map';
+
 /// Is verbose
 const String verbose = 'verbose';
 
@@ -37,4 +40,5 @@ const String tempNodeDir = '$tempDir/node';
 /// Generate the artifact temporary directory
 const String tempOutputDir = '$tempDir/out';
 
+/// Generate the input temporary directory
 const String tempInputDir = '$tempDir/in';
